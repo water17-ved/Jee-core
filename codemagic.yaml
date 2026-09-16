@@ -1,18 +1,64 @@
 workflows:
-  android-native-debug:
-    name: JEE CORE Android Debug
+  android-zip-build:
+    name: JEE CORE APK
     max_build_duration: 120
     instance_type: mac_mini_m2
 
     scripts:
-      - name: Set Android SDK location
+      - name: Extract JEE CORE project
         script: |
-          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/local.properties"
+          set -e
+
+          ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: No ZIP file found"
+            exit 1
+          fi
+
+          echo "Using ZIP: $ZIP"
+
+          mkdir -p extracted
+          unzip -q "$ZIP" -d extracted
+
+          echo "Extracted files:"
+          find extracted -maxdepth 3 -type f | head -100
+
+      - name: Locate Android Gradle project
+        script: |
+          set -e
+
+          PROJECT_DIR=$(find extracted -name gradlew -type f -print -quit | xargs -r dirname)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: gradlew was not found inside the ZIP"
+            echo "The ZIP may contain another archive or may not be a complete Android project."
+            exit 1
+          fi
+
+          echo "Android project found at: $PROJECT_DIR"
+
+          chmod +x "$PROJECT_DIR/gradlew"
+
+          echo "$PROJECT_DIR" > project_path.txt
+
+      - name: Configure Android SDK
+        script: |
+          set -e
+
+          PROJECT_DIR=$(cat project_path.txt)
+
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$PROJECT_DIR/local.properties"
 
       - name: Build JEE CORE APK
         script: |
-          chmod +x ./gradlew
+          set -e
+
+          PROJECT_DIR=$(cat project_path.txt)
+
+          cd "$PROJECT_DIR"
+
           ./gradlew assembleDebug
 
     artifacts:
-      - app/build/outputs/**/*.apk
+      - extracted/**/app/build/outputs/**/*.apk
